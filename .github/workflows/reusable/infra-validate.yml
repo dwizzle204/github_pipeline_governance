@@ -1,0 +1,29 @@
+name: infra-validate
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  terraform-validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init (no backend)
+        run: terraform init -backend=false
+
+      - name: Terraform Fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        run: terraform validate

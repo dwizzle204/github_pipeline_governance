@@ -1,0 +1,70 @@
+name: infra-apply-dev
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "infra/*.tf"
+      - "infra/modules/**"
+      - "infra/env/dev.tfvars"
+      - ".github/workflows/infra-apply-dev.yml"
+
+env:
+  TF_CLOUD_ORGANIZATION: replace-with-tfc-organization
+  TF_API_TOKEN: ${{ secrets.TF_API_TOKEN_DEV_APPLY }}
+  TF_WORKSPACE: ${{ github.event.repository.name }}-dev
+  CONFIG_DIRECTORY: ./infra
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-apply-dev
+  cancel-in-progress: false
+
+jobs:
+  terraform-apply-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare dev tfvars for remote run
+        shell: bash
+        run: cp infra/env/dev.tfvars infra/terraform.tfvars
+
+      - name: Upload Terraform configuration
+        id: apply-upload
+        uses: hashicorp/tfc-workflows-github/actions/upload-configuration@v1.3.2
+        with:
+          workspace: ${{ env.TF_WORKSPACE }}
+          directory: ${{ env.CONFIG_DIRECTORY }}
+          speculative: false
+
+      - name: Create Terraform Cloud run
+        id: apply-create-run
+        uses: hashicorp/tfc-workflows-github/actions/create-run@v1.3.2
+        with:
+          workspace: ${{ env.TF_WORKSPACE }}
+          configuration_version: ${{ steps.apply-upload.outputs.configuration_version_id }}
+          plan_only: false
+
+      - name: Apply Terraform Cloud run
+        id: apply-run
+        uses: hashicorp/tfc-workflows-github/actions/apply-run@v1.3.2
+        with:
+          run: ${{ fromJSON(steps.apply-create-run.outputs.payload).data.id }}
+          comment: "Automated dev apply from main branch"
+
+      - name: Add apply summary to workflow
+        shell: bash
+        run: |
+          {
+            echo "## Terraform Cloud Dev Apply"
+            echo ""
+            echo "Workspace: \\`${{ env.TF_WORKSPACE }}\\`"
+            echo "Run URL: ${{ steps.apply-create-run.outputs.run_link }}"
+            echo ""
+            echo "Apply requested and executed in Terraform Cloud."
+          } >> "$GITHUB_STEP_SUMMARY"

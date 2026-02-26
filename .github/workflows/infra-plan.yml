@@ -1,0 +1,96 @@
+name: infra-plan-reusable
+
+on:
+  workflow_call:
+    inputs:
+      tf_cloud_organization:
+        required: true
+        type: string
+      tf_workspace:
+        required: true
+        type: string
+      config_directory:
+        required: false
+        type: string
+        default: ./infra
+      tfvars_file:
+        required: true
+        type: string
+      summary_title:
+        required: false
+        type: string
+        default: Terraform Cloud Speculative Plan
+    secrets:
+      tf_api_token:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  TF_CLOUD_ORGANIZATION: ${{ inputs.tf_cloud_organization }}
+  TF_API_TOKEN: ${{ secrets.tf_api_token }}
+  TF_WORKSPACE: ${{ inputs.tf_workspace }}
+  CONFIG_DIRECTORY: ${{ inputs.config_directory }}
+
+jobs:
+  terraform-plan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Terrascan IaC scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONFIG_DIR="${{ inputs.config_directory }}"
+          CONFIG_DIR="${CONFIG_DIR#./}"
+          docker run --rm -v "${PWD}:/iac" tenable/terrascan scan -t terraform -i terraform -d "/iac/${CONFIG_DIR}"
+
+      - name: Prepare tfvars for remote run
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONFIG_DIR="${{ inputs.config_directory }}"
+          CONFIG_DIR="${CONFIG_DIR#./}"
+          cp "${{ inputs.tfvars_file }}" "${CONFIG_DIR}/terraform.tfvars"
+
+      - name: Upload Terraform configuration (speculative)
+        id: plan-upload
+        uses: hashicorp/tfc-workflows-github/actions/upload-configuration@v1.3.2
+        with:
+          workspace: ${{ env.TF_WORKSPACE }}
+          directory: ${{ env.CONFIG_DIRECTORY }}
+          speculative: true
+
+      - name: Create Terraform Cloud run (plan only)
+        id: plan-run
+        uses: hashicorp/tfc-workflows-github/actions/create-run@v1.3.2
+        with:
+          workspace: ${{ env.TF_WORKSPACE }}
+          configuration_version: ${{ steps.plan-upload.outputs.configuration_version_id }}
+          plan_only: true
+
+      - name: Fetch plan output
+        id: plan-output
+        uses: hashicorp/tfc-workflows-github/actions/plan-output@v1.3.2
+        with:
+          plan: ${{ fromJSON(steps.plan-run.outputs.payload).data.relationships.plan.data.id }}
+
+      - name: Add plan summary to workflow
+        shell: bash
+        run: |
+          {
+            echo "## ${{ inputs.summary_title }}"
+            echo ""
+            echo "Workspace: \`${{ env.TF_WORKSPACE }}\`"
+            echo "Run URL: ${{ steps.plan-run.outputs.run_link }}"
+            echo ""
+            echo "\`\`\`"
+            echo "${{ steps.plan-output.outputs.add }}"
+            echo "${{ steps.plan-output.outputs.change }}"
+            echo "${{ steps.plan-output.outputs.destroy }}"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"

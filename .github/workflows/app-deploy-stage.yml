@@ -1,0 +1,132 @@
+name: app-deploy-stage-reusable
+
+on:
+  workflow_call:
+    inputs:
+      artifact_version:
+        required: true
+        type: string
+      source_run_id:
+        required: true
+        type: string
+      prod_function_app_name:
+        required: true
+        type: string
+      prod_stage_slot_name:
+        required: true
+        type: string
+      artifact_prefix:
+        required: false
+        type: string
+        default: function-app
+      expected_release_workflow_name:
+        required: false
+        type: string
+        default: app-release
+      expected_release_branch:
+        required: false
+        type: string
+        default: main
+      environment_name:
+        required: false
+        type: string
+        default: production
+    secrets:
+      azure_client_id_deploy:
+        required: true
+      azure_tenant_id:
+        required: true
+      azure_subscription_id:
+        required: true
+      github_token:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+
+jobs:
+  deploy-stage:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment_name }}
+    steps:
+      - name: Validate artifact provenance
+        uses: actions/github-script@v7
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          EXPECTED_WORKFLOW_NAME: ${{ inputs.expected_release_workflow_name }}
+          EXPECTED_BRANCH: ${{ inputs.expected_release_branch }}
+        with:
+          github-token: ${{ secrets.github_token }}
+          script: |
+            const runId = Number(process.env.SOURCE_RUN_ID);
+            const expectedWorkflowName = process.env.EXPECTED_WORKFLOW_NAME;
+            const expectedBranch = process.env.EXPECTED_BRANCH;
+
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId,
+            });
+
+            const errors = [];
+            if (run.name !== expectedWorkflowName) {
+              errors.push(`workflow name mismatch: expected '${expectedWorkflowName}', got '${run.name}'`);
+            }
+            if (run.head_branch !== expectedBranch) {
+              errors.push(`branch mismatch: expected '${expectedBranch}', got '${run.head_branch}'`);
+            }
+            if (run.event !== "push") {
+              errors.push(`event mismatch: expected 'push', got '${run.event}'`);
+            }
+            if (run.conclusion !== "success") {
+              errors.push(`run conclusion is not success: got '${run.conclusion}'`);
+            }
+
+            if (errors.length > 0) {
+              core.setFailed(`Artifact provenance validation failed:\n- ${errors.join("\n- ")}`);
+              return;
+            }
+
+            core.info(
+              `Provenance OK: workflow '${run.name}' on branch '${run.head_branch}' concluded '${run.conclusion}'.`
+            );
+
+      - name: Download selected artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_prefix }}-${{ inputs.artifact_version }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ secrets.github_token }}
+          path: ./artifact
+
+      - name: Resolve package path
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE_PATH="$(find ./artifact -type f -name '*.zip' | head -n 1)"
+          if [ -z "$PACKAGE_PATH" ]; then
+            echo "No zip artifact found for selected version" >&2
+            exit 1
+          fi
+          echo "zip_path=$PACKAGE_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Azure login (limited deploy identity)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.azure_client_id_deploy }}
+          tenant-id: ${{ secrets.azure_tenant_id }}
+          subscription-id: ${{ secrets.azure_subscription_id }}
+
+      - name: Deploy artifact to pre-production slot
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ inputs.prod_function_app_name }}
+          slot-name: ${{ inputs.prod_stage_slot_name }}
+          package: ${{ steps.package.outputs.zip_path }}
+
+      - name: Logout Azure session
+        if: always()
+        run: az logout

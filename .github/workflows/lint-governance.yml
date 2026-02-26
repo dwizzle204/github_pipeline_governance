@@ -1,0 +1,64 @@
+name: lint-governance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint workflows with actionlint
+        uses: rhysd/actionlint@v1
+
+      - name: Validate reusable workflow contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          import pathlib
+          import sys
+
+          reusable_workflows = [
+              "app-ci.yml",
+              "app-release.yml",
+              "app-deploy-dev.yml",
+              "app-deploy-stage.yml",
+              "app-swap-slots.yml",
+              "infra-validate.yml",
+              "infra-plan.yml",
+              "infra-apply.yml",
+              "version-bump-check.yml",
+          ]
+
+          base = pathlib.Path(".github/workflows")
+          for workflow in reusable_workflows:
+              path = base / workflow
+              if not path.exists():
+                  print(f"Expected reusable workflow is missing: {path}", file=sys.stderr)
+                  sys.exit(1)
+
+              text = path.read_text()
+              has_workflow_call = re.search(r"(?m)^on:\n\s{2}workflow_call:", text) is not None
+              if not has_workflow_call:
+                  print(f"Missing workflow_call contract: {path}", file=sys.stderr)
+                  sys.exit(1)
+
+          print("Reusable workflow contract OK")
+          PY
+
+      - name: Validate action version pinning style
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Pn "uses:\s+[^@]+@(main|master)\b" .github/workflows/*.yml; then
+            echo "Floating branch references are not allowed in reusable workflows." >&2
+            exit 1
+          fi

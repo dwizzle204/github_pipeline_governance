@@ -1,0 +1,89 @@
+name: infra-apply-reusable
+
+on:
+  workflow_call:
+    inputs:
+      tf_cloud_organization:
+        required: true
+        type: string
+      tf_workspace:
+        required: true
+        type: string
+      config_directory:
+        required: false
+        type: string
+        default: ./infra
+      tfvars_file:
+        required: true
+        type: string
+      apply_comment:
+        required: false
+        type: string
+        default: Terraform Cloud apply run
+      environment_name:
+        required: false
+        type: string
+        default: dev
+    secrets:
+      tf_api_token:
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TF_CLOUD_ORGANIZATION: ${{ inputs.tf_cloud_organization }}
+  TF_API_TOKEN: ${{ secrets.tf_api_token }}
+  TF_WORKSPACE: ${{ inputs.tf_workspace }}
+  CONFIG_DIRECTORY: ${{ inputs.config_directory }}
+
+jobs:
+  terraform-apply:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare tfvars for remote run
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONFIG_DIR="${{ inputs.config_directory }}"
+          CONFIG_DIR="${CONFIG_DIR#./}"
+          cp "${{ inputs.tfvars_file }}" "${CONFIG_DIR}/terraform.tfvars"
+
+      - name: Upload Terraform configuration
+        id: apply-upload
+        uses: hashicorp/tfc-workflows-github/actions/upload-configuration@v1.3.2
+        with:
+          workspace: ${{ env.TF_WORKSPACE }}
+          directory: ${{ env.CONFIG_DIRECTORY }}
+          speculative: false
+
+      - name: Create Terraform Cloud run
+        id: apply-create-run
+        uses: hashicorp/tfc-workflows-github/actions/create-run@v1.3.2
+        with:
+          workspace: ${{ env.TF_WORKSPACE }}
+          configuration_version: ${{ steps.apply-upload.outputs.configuration_version_id }}
+          plan_only: false
+
+      - name: Apply Terraform Cloud run
+        id: apply-run
+        uses: hashicorp/tfc-workflows-github/actions/apply-run@v1.3.2
+        with:
+          run: ${{ fromJSON(steps.apply-create-run.outputs.payload).data.id }}
+          comment: ${{ inputs.apply_comment }}
+
+      - name: Add apply summary to workflow
+        shell: bash
+        run: |
+          {
+            echo "## Terraform Cloud Apply"
+            echo ""
+            echo "Workspace: \`${{ env.TF_WORKSPACE }}\`"
+            echo "Run URL: ${{ steps.apply-create-run.outputs.run_link }}"
+            echo ""
+            echo "Apply requested and executed in Terraform Cloud."
+          } >> "$GITHUB_STEP_SUMMARY"

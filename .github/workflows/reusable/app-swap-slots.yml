@@ -1,0 +1,61 @@
+name: app-swap-slots
+
+on:
+  workflow_dispatch:
+
+env:
+  PROD_FUNCTION_APP_NAME: ${{ vars.PROD_FUNCTION_APP_NAME }}
+  PROD_RESOURCE_GROUP_NAME: ${{ vars.PROD_RESOURCE_GROUP_NAME }}
+  SOURCE_SLOT_NAME: ${{ vars.PROD_STAGE_SLOT_NAME }}
+  TARGET_SLOT_NAME: production
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: app-slot-swap-${{ vars.PROD_FUNCTION_APP_NAME }}
+  cancel-in-progress: false
+
+jobs:
+  swap-stage-to-production:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Azure login (promotion identity)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID_PROMOTION }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate production target variables
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${PROD_FUNCTION_APP_NAME}" ]; then
+            echo "GitHub variable PROD_FUNCTION_APP_NAME must be set." >&2
+            exit 1
+          fi
+          if [ -z "${PROD_RESOURCE_GROUP_NAME}" ]; then
+            echo "GitHub variable PROD_RESOURCE_GROUP_NAME must be set." >&2
+            exit 1
+          fi
+          if [ -z "${SOURCE_SLOT_NAME}" ]; then
+            echo "GitHub variable PROD_STAGE_SLOT_NAME must be set." >&2
+            exit 1
+          fi
+
+      - name: Swap slots
+        shell: bash
+        run: |
+          set -euo pipefail
+          az functionapp deployment slot swap \
+            --name "${PROD_FUNCTION_APP_NAME}" \
+            --resource-group "${PROD_RESOURCE_GROUP_NAME}" \
+            --slot "${SOURCE_SLOT_NAME}" \
+            --target-slot "${TARGET_SLOT_NAME}"
+
+      - name: Logout Azure session
+        if: always()
+        run: az logout

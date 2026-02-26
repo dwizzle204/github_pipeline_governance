@@ -1,0 +1,34 @@
+name: infra-validate-reusable
+
+on:
+  workflow_call:
+    inputs:
+      config_directory:
+        required: false
+        type: string
+        default: ./infra
+
+permissions:
+  contents: read
+
+jobs:
+  terraform-validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.config_directory }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init (no backend)
+        run: terraform init -backend=false
+
+      - name: Terraform Fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        run: terraform validate

@@ -1,0 +1,69 @@
+name: infra-apply-prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      change_request_number:
+        description: "Approved change request number (example: CR-12345)"
+        required: true
+        type: string
+
+env:
+  TF_CLOUD_ORGANIZATION: replace-with-tfc-organization
+  TF_API_TOKEN: ${{ secrets.TF_API_TOKEN_PROD_APPLY }}
+  TF_WORKSPACE: ${{ github.event.repository.name }}-prod
+  CONFIG_DIRECTORY: ./infra
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-apply-prod
+  cancel-in-progress: false
+
+jobs:
+  terraform-apply-prod:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare prod tfvars for remote run
+        shell: bash
+        run: cp infra/env/prod.tfvars infra/terraform.tfvars
+
+      - name: Upload Terraform configuration
+        id: apply-upload
+        uses: hashicorp/tfc-workflows-github/actions/upload-configuration@v1.3.2
+        with:
+          workspace: ${{ env.TF_WORKSPACE }}
+          directory: ${{ env.CONFIG_DIRECTORY }}
+          speculative: false
+
+      - name: Create Terraform Cloud run
+        id: apply-create-run
+        uses: hashicorp/tfc-workflows-github/actions/create-run@v1.3.2
+        with:
+          workspace: ${{ env.TF_WORKSPACE }}
+          configuration_version: ${{ steps.apply-upload.outputs.configuration_version_id }}
+          plan_only: false
+
+      - name: Apply Terraform Cloud run
+        id: apply-run
+        uses: hashicorp/tfc-workflows-github/actions/apply-run@v1.3.2
+        with:
+          run: ${{ fromJSON(steps.apply-create-run.outputs.payload).data.id }}
+          comment: "${{ format('Manual prod apply (change request): {0}', inputs.change_request_number) }}"
+
+      - name: Add apply summary to workflow
+        shell: bash
+        run: |
+          {
+            echo "## Terraform Cloud Prod Apply"
+            echo ""
+            echo "Workspace: \\`${{ env.TF_WORKSPACE }}\\`"
+            echo "Run URL: ${{ steps.apply-create-run.outputs.run_link }}"
+            echo ""
+            echo "Change Request: ${{ inputs.change_request_number }}"
+          } >> "$GITHUB_STEP_SUMMARY"

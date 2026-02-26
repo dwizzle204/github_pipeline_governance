@@ -1,0 +1,92 @@
+name: app-ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: src/function_app
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          pip install flake8 pytest
+
+      - name: Install Azure Functions Core Tools
+        run: npm install -g azure-functions-core-tools@4 --unsafe-perm true
+
+      - name: Lint source
+        run: |
+          flake8 src/function_app --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 src/function_app --count --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Validate Python compilation
+        run: python -m compileall -q src/function_app
+
+      - name: Run unit tests
+        run: pytest -q tests
+
+      - name: Sample local runtime test (Core Tools)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > src/function_app/local.settings.json <<'EOF'
+          {
+            "IsEncrypted": false,
+            "Values": {
+              "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+              "FUNCTIONS_WORKER_RUNTIME": "python"
+            }
+          }
+          EOF
+
+          pushd src/function_app >/dev/null
+          func start --python --port 7071 > ../../func.log 2>&1 &
+          FUNC_PID=$!
+          trap "kill ${FUNC_PID} >/dev/null 2>&1 || true" EXIT
+
+          READY=0
+          for _ in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:7071/api/HttpExample?name=CI" > /tmp/function_response.txt; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$READY" -ne 1 ]; then
+            echo "Function host did not become ready in time."
+            cat ../../func.log || true
+            exit 1
+          fi
+
+          grep -F "Hello, CI." /tmp/function_response.txt
+          popd >/dev/null
+
+      - name: Validate package artifact creation
+        run: |
+          mkdir -p dist
+          cd src/function_app
+          zip -r ../../dist/function_app.zip .
+          cd ../../
+          test -s dist/function_app.zip

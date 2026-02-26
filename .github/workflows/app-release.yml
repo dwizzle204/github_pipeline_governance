@@ -1,0 +1,95 @@
+name: app-release-reusable
+
+on:
+  workflow_call:
+    inputs:
+      app_dir:
+        required: false
+        type: string
+        default: src/function_app
+      version_file:
+        required: false
+        type: string
+        default: VERSION
+      artifact_prefix:
+        required: false
+        type: string
+        default: function-app
+      retention_days:
+        required: false
+        type: number
+        default: 30
+      python_version:
+        required: false
+        type: string
+        default: "3.11"
+    outputs:
+      artifact_version:
+        description: Artifact version including commit suffix
+        value: ${{ jobs.build-and-publish.outputs.artifact_version }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_version: ${{ steps.version.outputs.artifact_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Resolve artifact version
+        id: version
+        uses: actions/github-script@v7
+        env:
+          VERSION_FILE: ${{ inputs.version_file }}
+          ARTIFACT_PREFIX: ${{ inputs.artifact_prefix }}
+        with:
+          script: |
+            const fs = require("fs");
+
+            const baseVersion = fs.readFileSync(process.env.VERSION_FILE, "utf8").trim();
+            if (!baseVersion) {
+              core.setFailed("VERSION file must not be empty");
+              return;
+            }
+
+            const shortSha = process.env.GITHUB_SHA.slice(0, 7);
+            const artifactVersion = `${baseVersion}-${shortSha}`;
+            const artifactName = `${process.env.ARTIFACT_PREFIX}-${artifactVersion}.zip`;
+
+            core.setOutput("artifact_version", artifactVersion);
+            core.setOutput("artifact_name", artifactName);
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.app_dir }}
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+
+      - name: Build function zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          pushd "${{ inputs.app_dir }}" >/dev/null
+          zip -r "${GITHUB_WORKSPACE}/dist/${{ steps.version.outputs.artifact_name }}" .
+          popd >/dev/null
+          test -s "${GITHUB_WORKSPACE}/dist/${{ steps.version.outputs.artifact_name }}"
+
+      - name: Upload versioned artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_prefix }}-${{ steps.version.outputs.artifact_version }}
+          path: dist/${{ steps.version.outputs.artifact_name }}
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}

@@ -1,0 +1,83 @@
+name: app-deploy-stage
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_version:
+        description: "Version suffix from app-release artifact (example: 1.2.3-a1b2c3d)"
+        required: true
+        type: string
+      source_run_id:
+        description: "GitHub Actions run_id that produced the artifact"
+        required: true
+        type: string
+
+env:
+  ARTIFACT_PREFIX: function-app
+  PROD_FUNCTION_APP_NAME: ${{ vars.PROD_FUNCTION_APP_NAME }}
+  PROD_STAGE_SLOT_NAME: ${{ vars.PROD_STAGE_SLOT_NAME }}
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+
+concurrency:
+  group: app-stage-deploy-${{ vars.PROD_FUNCTION_APP_NAME }}-${{ vars.PROD_STAGE_SLOT_NAME }}
+  cancel-in-progress: false
+
+jobs:
+  deploy-stage:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Download selected artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_PREFIX }}-${{ inputs.artifact_version }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ./artifact
+
+      - name: Resolve package path
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE_PATH="$(find ./artifact -type f -name '*.zip' | head -n 1)"
+          if [ -z "$PACKAGE_PATH" ]; then
+            echo "No zip artifact found for selected version" >&2
+            exit 1
+          fi
+          echo "zip_path=$PACKAGE_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Validate production app target variable
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${PROD_FUNCTION_APP_NAME}" ]; then
+            echo "GitHub variable PROD_FUNCTION_APP_NAME must be set." >&2
+            exit 1
+          fi
+          if [ -z "${PROD_STAGE_SLOT_NAME}" ]; then
+            echo "GitHub variable PROD_STAGE_SLOT_NAME must be set." >&2
+            exit 1
+          fi
+
+      - name: Azure login (limited deploy identity)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID_DEPLOY }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy artifact to pre-production slot
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.PROD_FUNCTION_APP_NAME }}
+          slot-name: ${{ env.PROD_STAGE_SLOT_NAME }}
+          package: ${{ steps.package.outputs.zip_path }}
+
+      - name: Logout Azure session
+        if: always()
+        run: az logout

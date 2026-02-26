@@ -1,0 +1,66 @@
+name: app-release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "VERSION"
+      - ".github/workflows/app-release.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Resolve artifact version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_VERSION="$(tr -d '[:space:]' < VERSION)"
+          if [ -z "$BASE_VERSION" ]; then
+            echo "VERSION file must not be empty" >&2
+            exit 1
+          fi
+          SHORT_SHA="${GITHUB_SHA::7}"
+          ARTIFACT_VERSION="${BASE_VERSION}-${SHORT_SHA}"
+          echo "artifact_version=$ARTIFACT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=function-app-${ARTIFACT_VERSION}.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        working-directory: src/function_app
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+
+      - name: Build function zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cd src/function_app
+          zip -r "../../dist/${{ steps.version.outputs.artifact_name }}" .
+          cd ../../
+          test -s "dist/${{ steps.version.outputs.artifact_name }}"
+
+      - name: Upload versioned artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: function-app-${{ steps.version.outputs.artifact_version }}
+          path: dist/${{ steps.version.outputs.artifact_name }}
+          if-no-files-found: error
+          retention-days: 30

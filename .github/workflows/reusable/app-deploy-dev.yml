@@ -1,0 +1,63 @@
+name: app-deploy-dev
+
+on:
+  workflow_dispatch:
+    inputs:
+      function_app_name_dev:
+        description: "Dedicated dev Azure Function App name"
+        required: true
+        type: string
+      git_ref:
+        description: "Git ref to deploy (branch, tag, or SHA)"
+        required: false
+        default: "main"
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: app-deploy-dev-${{ inputs.function_app_name_dev }}
+  cancel-in-progress: false
+
+jobs:
+  deploy-dev:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Checkout selected ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.git_ref }}
+
+      - name: Build temporary dev package
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHORT_SHA="$(git rev-parse --short=7 HEAD)"
+          PACKAGE_NAME="function_app-dev-${SHORT_SHA}.zip"
+          mkdir -p dist
+          cd src/function_app
+          zip -r "../../dist/${PACKAGE_NAME}" .
+          cd ../../
+          test -s "dist/${PACKAGE_NAME}"
+          echo "package_path=dist/${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Azure login (dev deploy identity)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID_DEV_DEPLOY }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy package to dedicated dev app
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ inputs.function_app_name_dev }}
+          package: ${{ steps.package.outputs.package_path }}
+
+      - name: Logout Azure session
+        if: always()
+        run: az logout

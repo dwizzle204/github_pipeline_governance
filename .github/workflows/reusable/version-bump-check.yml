@@ -1,0 +1,54 @@
+name: version-bump-check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  enforce-version-bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce VERSION bump for app/infra changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          CHANGED_FILES="$(git diff --name-only "${BASE_SHA}" "${HEAD_SHA}")"
+          echo "Changed files:"
+          echo "${CHANGED_FILES}"
+
+          REQUIRES_BUMP=false
+          VERSION_CHANGED=false
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+
+            case "$file" in
+              VERSION)
+                VERSION_CHANGED=true
+                ;;
+              src/*|infra/*)
+                REQUIRES_BUMP=true
+                ;;
+            esac
+          done <<< "${CHANGED_FILES}"
+
+          echo "requires_bump=${REQUIRES_BUMP}"
+          echo "version_changed=${VERSION_CHANGED}"
+
+          if [ "${REQUIRES_BUMP}" = true ] && [ "${VERSION_CHANGED}" != true ]; then
+            echo "VERSION must be updated when src/ or infra/ changes are included in a PR." >&2
+            exit 1
+          fi
+
+          echo "Version bump policy check passed."
