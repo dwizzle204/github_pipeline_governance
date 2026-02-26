@@ -4,6 +4,8 @@
 This repository is intended for education and learning sessions.
 Workflows here are examples for teaching governance patterns and should not be treated as production-ready controls without additional hardening and review.
 
+Template version: `0.1.0` (see `VERSION` and `CHANGELOG.md`).
+
 Central source of truth for reusable GitHub Actions workflows used by Azure Function learning/template repositories.
 
 ## Purpose

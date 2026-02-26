@@ -24,6 +24,18 @@ Use thin wrapper workflows in each application repository that call this reposit
   - `expected_release_workflow_name`
   - `expected_release_branch`
 
+## Infra Wrapper Pattern
+- Keep reusable infra logic centralized in:
+  - `.github/workflows/infra-plan.yml`
+  - `.github/workflows/infra-apply.yml`
+- Use small wrapper workflows in consumer repos for trigger policy:
+  - Auto apply wrappers: `push` trigger, typically lower-risk envs (`dev`, `qa`).
+  - Manual apply wrappers: `workflow_dispatch` trigger, typically higher-risk envs (`preprod`, `prod`).
+- Pass environment context from wrapper inputs:
+  - `tf_workspace`
+  - `tfvars_file`
+  - `environment_name`
+
 ## Adoption Pattern
 In a consumer repository workflow:
 
