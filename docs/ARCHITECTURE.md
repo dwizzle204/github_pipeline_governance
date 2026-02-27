@@ -22,6 +22,7 @@
 - `app-deploy-stage.yml`
 - `app-swap-slots.yml`
 - `infra-validate.yml`
+- `infra-terratest.yml`
 - `infra-plan.yml`
 - `infra-apply.yml`
 - `version-bump-check.yml`

@@ -4,7 +4,7 @@
 This repository is intended for education and learning sessions.
 Workflows here are examples for teaching governance patterns and should not be treated as production-ready controls without additional hardening and review.
 
-Template version: `0.1.0` (see `VERSION` and `CHANGELOG.md`).
+Template version: `0.1.1` (see `VERSION` and `CHANGELOG.md`).
 
 Central source of truth for reusable GitHub Actions workflows used by Azure Function learning/template repositories.
 
@@ -16,6 +16,16 @@ This governance repo owns shared pipeline implementation, security posture, and 
 
 ## What is in this repository
 - Reusable workflows in `.github/workflows/*.yml` using `on: workflow_call`
+  - `app-ci.yml`
+  - `app-release.yml`
+  - `app-deploy-dev.yml`
+  - `app-deploy-stage.yml`
+  - `app-swap-slots.yml`
+  - `infra-validate.yml`
+  - `infra-terratest.yml`
+  - `infra-plan.yml`
+  - `infra-apply.yml`
+  - `version-bump-check.yml`
 - Consumer guidance in `docs/CONSUMING.md`
 - Baseline history snapshot in `.github/workflows/reusable/` (imported originals)
 
