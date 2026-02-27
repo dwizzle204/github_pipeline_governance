@@ -13,6 +13,7 @@ Use thin wrapper workflows in each application repository that call this reposit
 - `.github/workflows/app-deploy-stage.yml`
 - `.github/workflows/app-swap-slots.yml`
 - `.github/workflows/infra-validate.yml`
+- `.github/workflows/infra-terratest.yml`
 - `.github/workflows/infra-plan.yml`
 - `.github/workflows/infra-apply.yml`
 - `.github/workflows/version-bump-check.yml`
@@ -28,6 +29,7 @@ Use thin wrapper workflows in each application repository that call this reposit
 - Keep reusable infra logic centralized in:
   - `.github/workflows/infra-plan.yml`
   - `.github/workflows/infra-apply.yml`
+  - `.github/workflows/infra-terratest.yml`
 - Use small wrapper workflows in consumer repos for trigger policy:
   - Auto apply wrappers: `push` trigger, typically lower-risk envs (`dev`, `qa`).
   - Manual apply wrappers: `workflow_dispatch` trigger, typically higher-risk envs (`preprod`, `prod`).

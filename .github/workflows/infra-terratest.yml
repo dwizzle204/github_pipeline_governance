@@ -1,0 +1,59 @@
+name: infra-terratest-reusable
+
+on:
+  workflow_call:
+    inputs:
+      config_directory:
+        required: false
+        type: string
+        default: ./infra
+      terratest_directory:
+        required: false
+        type: string
+        default: ./tests/terraform
+      go_version:
+        required: false
+        type: string
+        default: "1.22"
+      terraform_version:
+        required: false
+        type: string
+        default: "1.10.5"
+      test_timeout:
+        required: false
+        type: string
+        default: "30m"
+
+permissions:
+  contents: read
+
+jobs:
+  terraform-terratest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.terratest_directory }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+          cache-dependency-path: ${{ inputs.terratest_directory }}/go.sum
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Run Terraform Terratest suite
+        env:
+          TF_IN_AUTOMATION: "1"
+          TERRAFORM_CONFIG_DIRECTORY: ${{ inputs.config_directory }}
+        run: go test -v ./... -timeout ${{ inputs.test_timeout }}

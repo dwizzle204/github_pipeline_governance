@@ -1,3 +1,12 @@
+## [0.1.1] - 2026-02-27
+
+### Added
+- Added centralized reusable Terraform Terratest workflow (`.github/workflows/infra-terratest.yml`) for consumer repositories to run repository-local Terraform tests via wrapper workflows.
+
+### Changed
+- Updated governance lint policy to include `infra-terratest.yml` in the reusable workflow contract checks.
+- Updated governance documentation (`README.md`, `docs/CONSUMING.md`, `docs/ARCHITECTURE.md`) to include the new Terraform Terratest reusable workflow in the official catalog.
+
 ## [0.1.0] - 2026-02-26
 
 ### Added
